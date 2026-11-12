@@ -196,6 +196,40 @@ int GetOpenPositions()
 }
 
 //+------------------------------------------------------------------+
+// Giá thanh lý ước tính: giá mà tại đó equity = ngưỡng stop-out.
+// shortcut: giả định margin không đổi và chỉ XAU biến động (lệnh symbol khác
+// đứng yên); net volume = 0 (hedge hoàn toàn) → không có giá thanh lý.
+bool GetLiquidationPrice(double &liq, double &pct)
+{
+   double net = 0.0;
+   for(int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || !PositionSelectByTicket(t)) continue;
+      if(PositionGetString(POSITION_SYMBOL) != EA_Symbol) continue;
+      if(MagicNumber != 0 && PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      double v = PositionGetDouble(POSITION_VOLUME);
+      net += (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? v : -v;
+   }
+
+   double margin = AccountInfoDouble(ACCOUNT_MARGIN);
+   double cs     = SymbolInfoDouble(EA_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   if(MathAbs(net) < EPS || margin <= 0.0 || cs <= 0.0) return false;
+
+   double so  = AccountInfoDouble(ACCOUNT_MARGIN_SO_SO);
+   double thr = (AccountInfoInteger(ACCOUNT_MARGIN_SO_MODE) == ACCOUNT_STOPOUT_MODE_PERCENT)
+                ? margin * so / 100.0 : so;
+
+   double p0 = SymbolInfoDouble(EA_Symbol, net > 0 ? SYMBOL_BID : SYMBOL_ASK);
+   if(p0 <= 0.0) return false;
+
+   liq = p0 + (thr - AccountInfoDouble(ACCOUNT_EQUITY)) / (net * cs);
+   if(liq <= 0.0) return false;   // lệnh buy: giá không thể xuống dưới 0
+   pct = (liq - p0) / p0 * 100.0;
+   return true;
+}
+
+//+------------------------------------------------------------------+
 bool SetTakeProfit(ulong ticket, double pips)
 {
    if(!PositionSelectByTicket(ticket)) return false;
@@ -273,7 +307,7 @@ void RectCreate(string name, int x, int y, int w, int h, color bg, color border)
 
 void CreateDashboard()
 {
-   int x = PanelX, y = PanelY, W = 190, H = 44;
+   int x = PanelX, y = PanelY, W = 190, H = 60;
    int LX = x + 8, VX = x + W - 8;
    color LC = C'110,135,180';
 
@@ -288,6 +322,10 @@ void CreateDashboard()
    LabelCreate(PFX+"V_TP",  VX, y+24,
                StringFormat("TP %.0fp · >%.2f", TpPips, ThresholdVolume),
                C'255,210,60', 8, "Segoe UI", ANCHOR_RIGHT_UPPER);
+
+   // Dòng 3 (nhỏ): giá thanh lý ước tính
+   LabelCreate(PFX+"T_LIQ", LX, y+42, "Liq. price", LC, 7);
+   LabelCreate(PFX+"V_LIQ", VX, y+42, "—", LC, 7, "Segoe UI", ANCHOR_RIGHT_UPPER);
 
    ChartRedraw(0);
 }
@@ -305,6 +343,21 @@ void UpdateDashboard()
                     StringFormat("%.2f / %.2f lot", totalVol, TotalVolumeLimit));
    ObjectSetInteger(0, PFX+"V_TVOL", OBJPROP_COLOR, volColor);
    ObjectSetString (0, PFX+"V_POS",  OBJPROP_TEXT,  IntegerToString(openPos)+" orders");
+
+   double liq, pct;
+   if(GetLiquidationPrice(liq, pct))
+   {
+      double d = MathAbs(pct);
+      ObjectSetString (0, PFX+"V_LIQ", OBJPROP_TEXT,
+                       StringFormat("%s (%+.1f%%)", DoubleToString(liq, g_digits), pct));
+      ObjectSetInteger(0, PFX+"V_LIQ", OBJPROP_COLOR,
+                       d < 3.0 ? C'255,75,75' : d < 8.0 ? C'255,185,40' : C'50,215,115');
+   }
+   else
+   {
+      ObjectSetString (0, PFX+"V_LIQ", OBJPROP_TEXT, "—");
+      ObjectSetInteger(0, PFX+"V_LIQ", OBJPROP_COLOR, C'110,135,180');
+   }
    ChartRedraw(0);
 }
 
