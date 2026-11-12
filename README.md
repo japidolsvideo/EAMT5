@@ -12,7 +12,7 @@ Bộ EA MetaTrader 5 (MQL5) cho XAUUSD.
 
 Expert Advisor (MQL5) cho MetaTrader 5, **chỉ áp dụng cho XAUUSD**. EA không tự vào lệnh; nó theo dõi các lệnh bạn (hoặc EA khác) mở và **tự đặt Take Profit** để kiểm soát rủi ro khi khối lượng lớn.
 
-## Chức năng
+### Chức năng
 
 Mỗi khi có lệnh mới được mở (deal `DEAL_ENTRY_IN`), EA kiểm tra theo thứ tự:
 
