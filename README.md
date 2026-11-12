@@ -8,7 +8,7 @@ Bộ EA MetaTrader 5 (MQL5) cho XAUUSD.
 | `3EMA_NoDashBoard_Original.mq5` | EA vào lệnh 3 EMA M5 + lọc H1, v3.02, không dashboard (xem mục 2) |
 | `3EMA_Dashboard_Original.mq5` | Như trên, v4.00, có dashboard debug (xem mục 2) |
 
-## 1. XAU Risk Management
+## 🛡️ 1. XAU Risk Management ⭐
 
 Expert Advisor (MQL5) cho MetaTrader 5, **chỉ áp dụng cho XAUUSD**. EA không tự vào lệnh; nó theo dõi các lệnh bạn (hoặc EA khác) mở và **tự đặt Take Profit** để kiểm soát rủi ro khi khối lượng lớn.
 
