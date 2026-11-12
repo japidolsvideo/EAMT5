@@ -1,0 +1,316 @@
+//+------------------------------------------------------------------+
+//|                                         XAU Risk Management.mq5 |
+//|                                                                  |
+//|  Chỉ áp dụng cho cặp XAUUSD                                     |
+//|  Rule 1: lệnh mới có volume > ThresholdVolume (0.05) → set TP   |
+//|          (đúng 0.05 vẫn OK, từ 0.06 trở lên thì set TP)        |
+//|  Rule 2: tổng volume (đã gồm lệnh mới) > TotalVolumeLimit (0.4) |
+//|          → set TP lệnh mới nhất, kể cả khi lệnh đó vol nhỏ      |
+//|          (chỉ lệnh vừa mở, các lệnh cũ không thay đổi)          |
+//+------------------------------------------------------------------+
+#property copyright "XAU Risk Management"
+#property version   "1.30"
+#property strict
+
+//--- Inputs
+input string   EA_Symbol         = "XAUUSD";  // Symbol áp dụng
+input double   ThresholdVolume   = 0.05;       // Rule 1: ngưỡng volume/lệnh (lot)
+input double   TotalVolumeLimit  = 0.4;        // Rule 2: ngưỡng tổng volume (lot)
+input double   TpPips            = 15.0;       // TP (pip)
+input int      MagicNumber       = 0;          // Magic Number (0 = tất cả)
+input bool     VerboseLog        = true;       // Log chi tiết
+input int      PanelX            = 10;         // Panel vị trí X
+input int      PanelY            = 20;         // Panel vị trí Y
+
+//--- Globals
+int      g_digits   = 0;
+double   g_point    = 0.0;
+double   g_pipSize  = 0.0;
+
+#define PFX "XAURM_"
+#define EPS 1e-8   // sai số so sánh số thực (tránh lỗi 0.1+0.1+0.1+0.1 > 0.4)
+
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   if(!SymbolInfoInteger(EA_Symbol, SYMBOL_SELECT))
+   {
+      Print("[XAU RM] Symbol ", EA_Symbol, " không tìm thấy.");
+      return INIT_FAILED;
+   }
+   g_digits  = (int)SymbolInfoInteger(EA_Symbol, SYMBOL_DIGITS);
+   g_point   = SymbolInfoDouble(EA_Symbol, SYMBOL_POINT);
+   g_pipSize = g_point * 10.0;
+
+   CreateDashboard();
+   UpdateDashboard();
+
+   Print("[XAU RM] v1.30 Started | Symbol:", EA_Symbol,
+         " | ThreshVol:", ThresholdVolume,
+         " | TotalLim:", TotalVolumeLimit,
+         " | TP:", TpPips, "pip");
+   return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   DeleteDashboard();
+   Print("[XAU RM] Stopped. Reason:", reason);
+}
+
+//+------------------------------------------------------------------+
+// OnTick: CHỈ cập nhật dashboard, KHÔNG xử lý TP
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   UpdateDashboard();
+}
+
+//+------------------------------------------------------------------+
+// OnTradeTransaction: điểm xử lý DUY NHẤT
+// Mỗi lần có deal mới → xác định đúng position ticket vừa mở
+// → quyết định set TP hay không dựa trên rule
+//+------------------------------------------------------------------+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest     &request,
+                        const MqlTradeResult      &result)
+{
+   // Chỉ quan tâm deal IN (mở lệnh mới) trên đúng symbol
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+   if(trans.symbol != EA_Symbol)               return;
+
+   // Lấy thông tin deal vừa được add
+   ulong dealTicket = trans.deal;
+   if(dealTicket == 0) return;
+
+   // Chỉ xử lý deal loại DEAL_ENTRY_IN (mở vị thế mới hoặc thêm vào)
+   if(!HistoryDealSelect(dealTicket)) return;
+   ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+   if(dealEntry != DEAL_ENTRY_IN) return;
+
+   // Lọc magic number
+   if(MagicNumber != 0 && HistoryDealGetInteger(dealTicket, DEAL_MAGIC) != MagicNumber) return;
+
+   // Lấy position ID gắn với deal này
+   ulong positionID = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+
+   // Tìm position ticket khớp với positionID
+   // (Trong MT5, position ticket = position ID)
+   ulong newTicket = 0;
+   Sleep(300); // đợi position vào pool
+   for(int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || !PositionSelectByTicket(t)) continue;
+      if(PositionGetString(POSITION_SYMBOL) != EA_Symbol) continue;
+      if((ulong)PositionGetInteger(POSITION_IDENTIFIER) == positionID)
+      {
+         newTicket = t;
+         break;
+      }
+   }
+
+   if(newTicket == 0)
+   {
+      if(VerboseLog) Print("[XAU RM] Không tìm thấy position cho deal #", dealTicket);
+      return;
+   }
+
+   if(!PositionSelectByTicket(newTicket)) return;
+
+   double newVolume  = PositionGetDouble(POSITION_VOLUME);
+   double currentTP  = PositionGetDouble(POSITION_TP);
+
+   // Nếu lệnh đã có TP (set thủ công) thì không ghi đè
+   if(currentTP > 0.0)
+   {
+      if(VerboseLog) Print("[XAU RM] #", newTicket, " đã có TP=", currentTP, " → bỏ qua");
+      UpdateDashboard();
+      return;
+   }
+
+   // Tính tổng volume SAU KHI lệnh mới đã vào (bao gồm lệnh này)
+   double totalVolume = GetTotalVolume();
+
+   bool   needTP = false;
+   string reason = "";
+
+   // Rule 2: tổng vol > 0.4 → set TP cho lệnh mới này (bất kể volume)
+   if(totalVolume > TotalVolumeLimit + EPS)
+   {
+      needTP = true;
+      reason = StringFormat("Rule 2: total vol %.2f > %.2f lot", totalVolume, TotalVolumeLimit);
+   }
+   // Rule 1: volume lệnh này > 0.05 (0.05 vẫn OK) → set TP
+   else if(newVolume > ThresholdVolume + EPS)
+   {
+      needTP = true;
+      reason = StringFormat("Rule 1: order vol %.2f > %.2f lot", newVolume, ThresholdVolume);
+   }
+
+   if(needTP)
+   {
+      if(SetTakeProfit(newTicket, TpPips))
+         Print("[XAU RM] ✔ TP set #", newTicket, " vol=", newVolume, " | ", reason);
+      else
+         Print("[XAU RM] ✘ TP failed #", newTicket, " Err:", GetLastError());
+   }
+   else
+   {
+      if(VerboseLog)
+         Print("[XAU RM] #", newTicket, " vol=", newVolume,
+               " totalVol=", totalVolume, " → không đặt TP");
+   }
+
+   UpdateDashboard();
+}
+
+//+------------------------------------------------------------------+
+double GetTotalVolume()
+{
+   double total = 0.0;
+   for(int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || !PositionSelectByTicket(t)) continue;
+      if(PositionGetString(POSITION_SYMBOL) != EA_Symbol) continue;
+      if(MagicNumber != 0 && PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      total += PositionGetDouble(POSITION_VOLUME);
+   }
+   return total;
+}
+
+int GetOpenPositions()
+{
+   int cnt = 0;
+   for(int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || !PositionSelectByTicket(t)) continue;
+      if(PositionGetString(POSITION_SYMBOL) != EA_Symbol) continue;
+      if(MagicNumber != 0 && PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      cnt++;
+   }
+   return cnt;
+}
+
+//+------------------------------------------------------------------+
+bool SetTakeProfit(ulong ticket, double pips)
+{
+   if(!PositionSelectByTicket(ticket)) return false;
+
+   ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+   double currentSL = PositionGetDouble(POSITION_SL);
+   double tp        = 0.0;
+
+   if(posType == POSITION_TYPE_BUY)
+      tp = NormalizeDouble(openPrice + pips * g_pipSize, g_digits);
+   else if(posType == POSITION_TYPE_SELL)
+      tp = NormalizeDouble(openPrice - pips * g_pipSize, g_digits);
+   else
+      return false;
+
+   MqlTradeRequest req = {};
+   MqlTradeResult  res = {};
+   req.action   = TRADE_ACTION_SLTP;
+   req.symbol   = EA_Symbol;
+   req.position = ticket;
+   req.sl       = currentSL;
+   req.tp       = tp;
+
+   bool sent = OrderSend(req, res);
+
+   if(VerboseLog)
+      Print("[XAU RM] Modify #", ticket,
+            " ", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+            " open=", openPrice, " tp=", tp,
+            " retcode=", res.retcode);
+
+   return (sent && res.retcode == TRADE_RETCODE_DONE);
+}
+
+//+------------------------------------------------------------------+
+//             D A S H B O A R D  (gọn: 2 dòng)
+//+------------------------------------------------------------------+
+void LabelCreate(string name, int x, int y, string text, color clr,
+                 int sz, string font = "Segoe UI",
+                 ENUM_ANCHOR_POINT anchor = ANCHOR_LEFT_UPPER)
+{
+   if(ObjectFind(0, name) >= 0) ObjectDelete(0, name);
+   ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, name, OBJPROP_CORNER,    CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_COLOR,     clr);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE,  sz);
+   ObjectSetString (0, name, OBJPROP_FONT,      font);
+   ObjectSetString (0, name, OBJPROP_TEXT,      text);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN,    true);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR,    anchor);
+   ObjectSetInteger(0, name, OBJPROP_ZORDER,    10);
+}
+
+void RectCreate(string name, int x, int y, int w, int h, color bg, color border)
+{
+   if(ObjectFind(0, name) >= 0) ObjectDelete(0, name);
+   ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, name, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE,   x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE,   y);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE,       w);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE,       h);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR,     bg);
+   ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, border);
+   ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH,       1);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE,  false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN,      true);
+   ObjectSetInteger(0, name, OBJPROP_ZORDER,      1);
+}
+
+void CreateDashboard()
+{
+   int x = PanelX, y = PanelY, W = 190, H = 44;
+   int LX = x + 8, VX = x + W - 8;
+   color LC = C'110,135,180';
+
+   RectCreate(PFX+"BG", x, y, W, H, C'15,18,28', C'55,80,130');
+
+   // Dòng 1: tên EA | tổng vol / giới hạn
+   LabelCreate(PFX+"T_TITLE", LX, y+6, "XAU RM", C'120,190,255', 8, "Segoe UI Bold");
+   LabelCreate(PFX+"V_TVOL",  VX, y+6, "—", C'50,215,115', 8, "Segoe UI Bold", ANCHOR_RIGHT_UPPER);
+
+   // Dòng 2: số lệnh | cấu hình TP
+   LabelCreate(PFX+"V_POS", LX, y+24, "—", LC, 8);
+   LabelCreate(PFX+"V_TP",  VX, y+24,
+               StringFormat("TP %.0fp · >%.2f", TpPips, ThresholdVolume),
+               C'255,210,60', 8, "Segoe UI", ANCHOR_RIGHT_UPPER);
+
+   ChartRedraw(0);
+}
+
+void UpdateDashboard()
+{
+   double totalVol = GetTotalVolume();
+   int    openPos  = GetOpenPositions();
+
+   // Cùng điều kiện với logic Rule 2: chỉ đỏ khi tổng > giới hạn
+   color volColor = (totalVol > TotalVolumeLimit + EPS)  ? C'255,75,75' :
+                    (totalVol >= TotalVolumeLimit*0.75)  ? C'255,185,40' : C'50,215,115';
+
+   ObjectSetString (0, PFX+"V_TVOL", OBJPROP_TEXT,
+                    StringFormat("%.2f / %.2f lot", totalVol, TotalVolumeLimit));
+   ObjectSetInteger(0, PFX+"V_TVOL", OBJPROP_COLOR, volColor);
+   ObjectSetString (0, PFX+"V_POS",  OBJPROP_TEXT,  IntegerToString(openPos)+" orders");
+   ChartRedraw(0);
+}
+
+void DeleteDashboard()
+{
+   ObjectsDeleteAll(0, PFX);
+   ChartRedraw(0);
+}
+//+------------------------------------------------------------------+
