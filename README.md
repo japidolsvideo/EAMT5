@@ -53,7 +53,7 @@ Panel nhỏ trên chart: tổng volume / giới hạn (xanh → vàng khi ≥75%
 - Xử lý hoàn toàn trong `OnTradeTransaction` (có `Sleep(300)` chờ position vào pool); `OnTick` chỉ cập nhật dashboard.
 - Chưa được backtest/kiểm thử trên tài khoản thật — hãy thử trên demo trước.
 
-## 2. 3EMA M5 Buy/Sell (XAUUSD, M5)
+## 🛡️ 2. 3EMA M5 Buy/Sell (XAUUSD, M5) ⭐
 
 EA tự vào lệnh bằng **Buy Stop / Sell Stop**, xử lý một lần mỗi nến M5 mới. Hai file có cùng chiến lược.
 
