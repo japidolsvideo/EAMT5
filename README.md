@@ -7,6 +7,7 @@ Bộ EA MetaTrader 5 (MQL5) cho XAUUSD.
 | `XAU Risk Management.mq5` | Tự đặt TP cho lệnh mới theo volume (xem mục 1) |
 | `3EMA_NoDashBoard_Original.mq5` | EA vào lệnh 3 EMA M5 + lọc H1, v3.02, không dashboard (xem mục 2) |
 | `3EMA_Dashboard_Original.mq5` | Như trên, v4.00, có dashboard debug (xem mục 2) |
+| `TelegramAlertEA.mq5` | Gửi cảnh báo Telegram khi mở/đóng lệnh, chạm TP/SL, dời SL (xem mục 3) |
 
 ## 🛡️ 1. XAU Risk Management ⭐
 
@@ -86,3 +87,45 @@ EA tự vào lệnh bằng **Buy Stop / Sell Stop**, xử lý một lần mỗi 
 Lưu ý với bản Dashboard: giới hạn pending mặc định là 10000 nên gần như không chặn được việc đặt chồng; session và số lệnh được tính lại theo chu kỳ `InpDashRefreshSec` (mặc định 10 giây) nên có thể cũ khi có nến mới. Muốn chạy thật nên dùng bản NoDashboard, hoặc giảm `InpMaxPendingOrders`.
 
 Chưa backtest — hãy thử trên demo trước.
+
+## 🛡️ 3. TelegramAlertEA ⭐
+
+EA không giao dịch; nó theo dõi tài khoản và **gửi tin nhắn Telegram** mỗi khi có sự kiện lệnh (v1.10).
+
+### Các cảnh báo
+
+| Sự kiện | Input bật/tắt | Nội dung tin nhắn |
+|---------|---------------|-------------------|
+| Lệnh mới mở | `InpAlertOpen` | Loại Buy/Sell, symbol, volume, giá, SL, TP, ticket |
+| Lệnh đóng | `InpAlertClose` | Lý do (SL, TP, đóng tay, EA đóng…), symbol, volume, giá đóng, lợi nhuận ròng (gồm commission + swap), balance |
+| Chạm Take Profit | `InpAlertTP` | Như trên, tin riêng "Take Profit Hit" |
+| Đổi Stop Loss | `InpAlertSL` | SL cũ → SL mới, ghi chú nếu là trailing |
+
+Khi khởi động EA gửi thêm một tin kiểm tra kết nối (số tài khoản, balance).
+
+### Hướng dẫn sử dụng
+
+1. **Tạo bot**: chat với [@BotFather](https://t.me/BotFather) → `/newbot` → lấy **Bot Token**.
+2. **Lấy Chat ID**: nhắn một tin cho bot (hoặc thêm bot vào group/channel và cho quyền gửi tin), rồi mở `https://api.telegram.org/bot<TOKEN>/getUpdates` và đọc `chat.id` (group/channel thường là số âm, dạng `-100…`).
+3. **Cho phép WebRequest trong MT5**: *Tools → Options → Expert Advisors* → tick *Allow WebRequest for listed URL* → thêm `https://api.telegram.org` → OK, **khởi động lại MT5**.
+4. Chép `TelegramAlertEA.mq5` vào `MQL5/Experts/`, biên dịch (F7).
+5. Gắn EA lên **một chart bất kỳ** (một chart là đủ, EA theo dõi toàn tài khoản), bật **Algo Trading**.
+6. Nhập `InpBotToken` và `InpChatID`. Thiếu một trong hai, EA báo lỗi và không chạy.
+7. Kiểm tra Telegram có tin "TelegramAlertEA Started". Không có thì xem tab *Experts*: lỗi `4014` là chưa thêm URL ở bước 3; HTTP `401` sai token; `400` sai Chat ID; `403` bot chưa được thêm vào group hoặc bị chặn.
+
+### Inputs
+
+| Input | Mặc định | Ý nghĩa |
+|-------|----------|---------|
+| `InpBotToken` | rỗng | Token của bot |
+| `InpChatID` | rỗng | ID người/group/channel nhận tin |
+| `InpAlertOpen` / `InpAlertClose` / `InpAlertTP` / `InpAlertSL` | true | Bật/tắt từng loại cảnh báo |
+| `InpDebugMode` | true | Log chi tiết vào tab Experts |
+
+### Lưu ý
+
+- **Đặt `InpDebugMode = false` khi dùng thật**: chế độ debug in URL gọi API, trong đó có Bot Token, vào log Experts. Không chia sẻ log khi còn bật debug.
+- Mục "Ticket" trong tin báo mở lệnh là ticket của deal, không phải ticket của position.
+- Cảnh báo đổi SL có thể **không hoạt động**: `CheckNewPositions()` gọi `InitSLTracker()` mỗi lần chạy, ghi đè SL đã lưu bằng SL hiện tại trước khi `CheckSLChanges()` so sánh. Chưa kiểm thử trên MT5.
+- Mở lệnh có thể bị báo trùng, vì được phát hiện cả bằng `OnTradeTransaction` lẫn polling.
+- Chưa backtest/kiểm thử — hãy thử trên demo trước.
