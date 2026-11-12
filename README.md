@@ -31,7 +31,7 @@ Mỗi khi có lệnh mới được mở (deal `DEAL_ENTRY_IN`), EA kiểm tra t
 
 Panel nhỏ trên chart: tổng volume / giới hạn (xanh → vàng khi ≥75% → đỏ khi vượt), số lệnh đang mở, và cấu hình TP.
 
-Dòng thứ 3 (chữ nhỏ) là **giá thanh lý ước tính** và % khoảng cách tới giá hiện tại. Tính từ equity, margin, ngưỡng stop-out của broker và net volume XAU (buy − sell): `giá = giá hiện tại + (ngưỡng stop-out − equity) / (net volume × contract size)`. Màu xanh khi cách xa ≥ 8%, vàng 3–8%, đỏ < 3%. Hiện `—` khi không có lệnh hoặc net volume = 0. Đây là ước tính: giả định margin không đổi và chỉ giá XAU thay đổi.
+Dòng thứ 3 là **giá thanh lý ước tính** và % khoảng cách tới giá hiện tại. Tính từ equity, margin, ngưỡng stop-out của broker và net volume XAU (buy − sell): `giá = giá hiện tại + (ngưỡng stop-out − equity) / (net volume × contract size)`. Màu xanh khi cách xa ≥ 8%, vàng 3–8%, đỏ < 3%. Hiện `—` khi không có lệnh hoặc net volume = 0. Đây là ước tính: giả định margin không đổi và chỉ giá XAU thay đổi.
 
 ### Inputs
 

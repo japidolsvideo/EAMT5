@@ -307,7 +307,7 @@ void RectCreate(string name, int x, int y, int w, int h, color bg, color border)
 
 void CreateDashboard()
 {
-   int x = PanelX, y = PanelY, W = 190, H = 60;
+   int x = PanelX, y = PanelY, W = 190, H = 64;
    int LX = x + 8, VX = x + W - 8;
    color LC = C'110,135,180';
 
@@ -324,8 +324,8 @@ void CreateDashboard()
                C'255,210,60', 8, "Segoe UI", ANCHOR_RIGHT_UPPER);
 
    // Dòng 3 (nhỏ): giá thanh lý ước tính
-   LabelCreate(PFX+"T_LIQ", LX, y+42, "Liq. price", LC, 7);
-   LabelCreate(PFX+"V_LIQ", VX, y+42, "—", LC, 7, "Segoe UI", ANCHOR_RIGHT_UPPER);
+   LabelCreate(PFX+"T_LIQ", LX, y+44, "Liq. price", C'150,170,210', 8);
+   LabelCreate(PFX+"V_LIQ", VX, y+44, "—", LC, 8, "Segoe UI Bold", ANCHOR_RIGHT_UPPER);
 
    ChartRedraw(0);
 }
@@ -349,7 +349,7 @@ void UpdateDashboard()
    {
       double d = MathAbs(pct);
       ObjectSetString (0, PFX+"V_LIQ", OBJPROP_TEXT,
-                       StringFormat("%s (%+.1f%%)", DoubleToString(liq, g_digits), pct));
+                       StringFormat("%s (%+.1f%%)", DoubleToString(liq, 2), pct));
       ObjectSetInteger(0, PFX+"V_LIQ", OBJPROP_COLOR,
                        d < 3.0 ? C'255,75,75' : d < 8.0 ? C'255,185,40' : C'50,215,115');
    }
