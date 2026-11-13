@@ -47,10 +47,12 @@ Dòng thứ 3 là **giá thanh lý ước tính** và % khoảng cách tới gi�
 
 | Input | Mặc định | Ý nghĩa |
 |-------|----------|---------|
+| `XAU_Enable` | true | Bật/tắt risk management cho XAU (tắt thì panel hiện `XAU RM: OFF`) |
 | `EA_Symbol` | XAUUSD | Symbol áp dụng (đổi nếu broker đặt tên khác, vd `XAUUSDm`) |
 | `ThresholdVolume` | 0.05 | Rule 1: ngưỡng volume mỗi lệnh |
 | `TotalVolumeLimit` | 0.4 | Rule 2: ngưỡng tổng volume |
 | `TpPips` | 15 | Khoảng cách TP (pip) |
+| `BTC_Enable` | true | Bật/tắt risk management cho BTC (tắt thì ẩn dòng BTC trên panel) |
 | `BTC_Symbol` | BTCUSD | Symbol BTC (đổi nếu broker đặt tên khác, `""` = tắt quản lý BTC) |
 | `BTC_ThresholdVolume` | 0.1 | BTC Rule 1: ngưỡng volume mỗi lệnh |
 | `BTC_TotalVolumeLimit` | 0.4 | BTC Rule 2: ngưỡng tổng volume |

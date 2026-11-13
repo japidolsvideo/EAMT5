@@ -13,10 +13,12 @@
 #property strict
 
 //--- Inputs
+input bool     XAU_Enable        = true;       // Bật risk management XAU
 input string   EA_Symbol         = "XAUUSD";  // Symbol áp dụng
 input double   ThresholdVolume   = 0.05;       // Rule 1: ngưỡng volume/lệnh (lot)
 input double   TotalVolumeLimit  = 0.4;        // Rule 2: ngưỡng tổng volume (lot)
 input double   TpPips            = 15.0;       // TP (pip)
+input bool     BTC_Enable        = true;       // Bật risk management BTC
 input string   BTC_Symbol        = "BTCUSD";   // BTC: symbol ("" = tắt BTC)
 input double   BTC_ThresholdVolume = 0.1;      // BTC Rule 1: ngưỡng volume/lệnh (lot)
 input double   BTC_TotalVolumeLimit = 0.4;     // BTC Rule 2: ngưỡng tổng volume (lot)
@@ -35,13 +37,13 @@ bool     g_btcOn    = false;   // BTC được bật và symbol hợp lệ
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   if(!SymbolInfoInteger(EA_Symbol, SYMBOL_SELECT))
+   if(XAU_Enable && !SymbolInfoInteger(EA_Symbol, SYMBOL_SELECT))
    {
       Print("[XAU RM] Symbol ", EA_Symbol, " không tìm thấy.");
       return INIT_FAILED;
    }
-   g_btcOn = (BTC_Symbol != "" && SymbolSelect(BTC_Symbol, true));
-   if(BTC_Symbol != "" && !g_btcOn)
+   g_btcOn = (BTC_Enable && BTC_Symbol != "" && SymbolSelect(BTC_Symbol, true));
+   if(BTC_Enable && BTC_Symbol != "" && !g_btcOn)
       Print("[XAU RM] Symbol ", BTC_Symbol, " không tìm thấy → tắt quản lý BTC.");
 
    CreateDashboard();
@@ -83,7 +85,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 
    // Chọn thông số theo symbol của deal
    double thrVol, totLim, tpPips;
-   if(trans.symbol == EA_Symbol)
+   if(XAU_Enable && trans.symbol == EA_Symbol)
    {
       thrVol = ThresholdVolume;     totLim = TotalVolumeLimit;     tpPips = TpPips;
    }
@@ -373,6 +375,11 @@ void UpdateDashboard()
    ObjectSetString (0, PFX+"V_TVOL", OBJPROP_TEXT,
                     StringFormat("%.2f / %.2f lot", totalVol, TotalVolumeLimit));
    ObjectSetInteger(0, PFX+"V_TVOL", OBJPROP_COLOR, VolColor(totalVol, TotalVolumeLimit));
+   if(!XAU_Enable)
+   {
+      ObjectSetString (0, PFX+"V_TVOL", OBJPROP_TEXT, "XAU RM: OFF");
+      ObjectSetInteger(0, PFX+"V_TVOL", OBJPROP_COLOR, C'130,130,130');
+   }
 
    if(g_btcOn)
    {
