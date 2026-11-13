@@ -11,7 +11,7 @@ Bộ EA MetaTrader 5 (MQL5) cho XAUUSD.
 
 ## 🛡️ 1. XAU Risk Management ⭐
 
-Expert Advisor (MQL5) cho MetaTrader 5, **chỉ áp dụng cho XAUUSD**. EA không tự vào lệnh; nó theo dõi các lệnh bạn (hoặc EA khác) mở và **tự đặt Take Profit** để kiểm soát rủi ro khi khối lượng lớn.
+Expert Advisor (MQL5) cho MetaTrader 5, áp dụng cho **XAUUSD** và **BTCUSD** (mỗi cặp có thông số riêng). EA không tự vào lệnh; nó theo dõi các lệnh bạn (hoặc EA khác) mở và **tự đặt Take Profit** để kiểm soát rủi ro khi khối lượng lớn.
 
 ### Chức năng
 
@@ -22,7 +22,15 @@ Mỗi khi có lệnh mới được mở (deal `DEAL_ENTRY_IN`), EA kiểm tra t
 | 2 | Tổng volume các lệnh XAUUSD đang mở (đã gồm lệnh mới) **> `TotalVolumeLimit`** (mặc định 0.4 lot) | Đặt TP cho **lệnh vừa mở**, kể cả khi volume nhỏ |
 | 1 | Volume lệnh mới **> `ThresholdVolume`** (mặc định 0.05 lot; đúng 0.05 thì không đặt) | Đặt TP cho lệnh vừa mở |
 
-- TP = giá mở ± `TpPips` (mặc định 15 pip; 1 pip = 10 point). Buy: cộng, Sell: trừ.
+- Mỗi cặp được kiểm tra riêng (tổng volume tính riêng theo từng symbol). BTC dùng cùng 2 rule, khác thông số:
+
+| | XAUUSD | BTCUSD |
+|---|---|---|
+| Ngưỡng volume/lệnh (Rule 1) | 0.05 | 0.1 |
+| Ngưỡng tổng volume (Rule 2) | 0.4 | 0.4 |
+| TP | 15 pip | 10 pip |
+
+- TP = giá mở ± số pip (1 pip = 10 point của symbol đó). Buy: cộng, Sell: trừ.
 - Chỉ tác động lên lệnh mới; các lệnh cũ giữ nguyên.
 - Lệnh đã có TP (đặt thủ công) sẽ **không bị ghi đè**; SL hiện có được giữ nguyên.
 - So sánh số thực có sai số (`EPS`) để tránh lỗi làm tròn (vd 0.1×4 vs 0.4).
@@ -31,7 +39,9 @@ Mỗi khi có lệnh mới được mở (deal `DEAL_ENTRY_IN`), EA kiểm tra t
 
 Panel nhỏ trên chart: tổng volume / giới hạn (xanh → vàng khi ≥75% → đỏ khi vượt), số lệnh đang mở, và cấu hình TP.
 
-Dòng thứ 3 là **giá thanh lý ước tính** và % khoảng cách tới giá hiện tại. Tính từ equity, margin, ngưỡng stop-out của broker và net volume XAU (buy − sell): `giá = giá hiện tại + (ngưỡng stop-out − equity) / (net volume × contract size)`. Màu xanh khi cách xa ≥ 8%, vàng 3–8%, đỏ < 3%. Hiện `—` khi không có lệnh hoặc net volume = 0. Đây là ước tính: giả định margin không đổi và chỉ giá XAU thay đổi.
+Khi bật BTC, panel thêm 2 dòng cho BTC (tổng volume / giới hạn, số lệnh, cấu hình TP).
+
+Dòng thứ 3 là **giá thanh lý ước tính** và % khoảng cách tới giá hiện tại. Tính từ equity, margin, ngưỡng stop-out của broker và net volume XAU (buy − sell): `giá = giá hiện tại + (ngưỡng stop-out − equity) / (net volume × contract size)`. Màu xanh khi cách xa ≥ 8%, vàng 3–8%, đỏ < 3%. Hiện `—` khi không có lệnh hoặc net volume = 0. Đây là ước tính: giả định margin không đổi và chỉ giá XAU thay đổi; chỉ tính cho XAU, chưa tính vị thế BTC.
 
 ### Inputs
 
@@ -41,6 +51,10 @@ Dòng thứ 3 là **giá thanh lý ước tính** và % khoảng cách tới gi�
 | `ThresholdVolume` | 0.05 | Rule 1: ngưỡng volume mỗi lệnh |
 | `TotalVolumeLimit` | 0.4 | Rule 2: ngưỡng tổng volume |
 | `TpPips` | 15 | Khoảng cách TP (pip) |
+| `BTC_Symbol` | BTCUSD | Symbol BTC (đổi nếu broker đặt tên khác, `""` = tắt quản lý BTC) |
+| `BTC_ThresholdVolume` | 0.1 | BTC Rule 1: ngưỡng volume mỗi lệnh |
+| `BTC_TotalVolumeLimit` | 0.4 | BTC Rule 2: ngưỡng tổng volume |
+| `BTC_TpPips` | 10 | BTC: khoảng cách TP (pip) |
 | `MagicNumber` | 0 | 0 = xử lý mọi lệnh; khác 0 = chỉ lệnh có magic này |
 | `VerboseLog` | true | Log chi tiết vào tab Experts |
 | `PanelX` / `PanelY` | 10 / 20 | Vị trí panel |

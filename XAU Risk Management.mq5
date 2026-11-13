@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                         XAU Risk Management.mq5 |
 //|                                                                  |
-//|  Chỉ áp dụng cho cặp XAUUSD                                     |
+//|  Áp dụng cho XAUUSD và BTCUSD (mỗi cặp có thông số riêng)      |
 //|  Rule 1: lệnh mới có volume > ThresholdVolume (0.05) → set TP   |
 //|          (đúng 0.05 vẫn OK, từ 0.06 trở lên thì set TP)        |
 //|  Rule 2: tổng volume (đã gồm lệnh mới) > TotalVolumeLimit (0.4) |
@@ -9,7 +9,7 @@
 //|          (chỉ lệnh vừa mở, các lệnh cũ không thay đổi)          |
 //+------------------------------------------------------------------+
 #property copyright "XAU Risk Management"
-#property version   "1.30"
+#property version   "1.40"
 #property strict
 
 //--- Inputs
@@ -17,15 +17,17 @@ input string   EA_Symbol         = "XAUUSD";  // Symbol áp dụng
 input double   ThresholdVolume   = 0.05;       // Rule 1: ngưỡng volume/lệnh (lot)
 input double   TotalVolumeLimit  = 0.4;        // Rule 2: ngưỡng tổng volume (lot)
 input double   TpPips            = 15.0;       // TP (pip)
+input string   BTC_Symbol        = "BTCUSD";   // BTC: symbol ("" = tắt BTC)
+input double   BTC_ThresholdVolume = 0.1;      // BTC Rule 1: ngưỡng volume/lệnh (lot)
+input double   BTC_TotalVolumeLimit = 0.4;     // BTC Rule 2: ngưỡng tổng volume (lot)
+input double   BTC_TpPips        = 10.0;       // BTC: TP (pip)
 input int      MagicNumber       = 0;          // Magic Number (0 = tất cả)
 input bool     VerboseLog        = true;       // Log chi tiết
 input int      PanelX            = 10;         // Panel vị trí X
 input int      PanelY            = 20;         // Panel vị trí Y
 
 //--- Globals
-int      g_digits   = 0;
-double   g_point    = 0.0;
-double   g_pipSize  = 0.0;
+bool     g_btcOn    = false;   // BTC được bật và symbol hợp lệ
 
 #define PFX "XAURM_"
 #define EPS 1e-8   // sai số so sánh số thực (tránh lỗi 0.1+0.1+0.1+0.1 > 0.4)
@@ -38,14 +40,14 @@ int OnInit()
       Print("[XAU RM] Symbol ", EA_Symbol, " không tìm thấy.");
       return INIT_FAILED;
    }
-   g_digits  = (int)SymbolInfoInteger(EA_Symbol, SYMBOL_DIGITS);
-   g_point   = SymbolInfoDouble(EA_Symbol, SYMBOL_POINT);
-   g_pipSize = g_point * 10.0;
+   g_btcOn = (BTC_Symbol != "" && SymbolSelect(BTC_Symbol, true));
+   if(BTC_Symbol != "" && !g_btcOn)
+      Print("[XAU RM] Symbol ", BTC_Symbol, " không tìm thấy → tắt quản lý BTC.");
 
    CreateDashboard();
    UpdateDashboard();
 
-   Print("[XAU RM] v1.30 Started | Symbol:", EA_Symbol,
+   Print("[XAU RM] v1.40 Started | Symbol:", EA_Symbol,
          " | ThreshVol:", ThresholdVolume,
          " | TotalLim:", TotalVolumeLimit,
          " | TP:", TpPips, "pip");
@@ -78,7 +80,18 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 {
    // Chỉ quan tâm deal IN (mở lệnh mới) trên đúng symbol
    if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
-   if(trans.symbol != EA_Symbol)               return;
+
+   // Chọn thông số theo symbol của deal
+   double thrVol, totLim, tpPips;
+   if(trans.symbol == EA_Symbol)
+   {
+      thrVol = ThresholdVolume;     totLim = TotalVolumeLimit;     tpPips = TpPips;
+   }
+   else if(g_btcOn && trans.symbol == BTC_Symbol)
+   {
+      thrVol = BTC_ThresholdVolume; totLim = BTC_TotalVolumeLimit; tpPips = BTC_TpPips;
+   }
+   else return;
 
    // Lấy thông tin deal vừa được add
    ulong dealTicket = trans.deal;
@@ -103,7 +116,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    {
       ulong t = PositionGetTicket(i);
       if(t == 0 || !PositionSelectByTicket(t)) continue;
-      if(PositionGetString(POSITION_SYMBOL) != EA_Symbol) continue;
+      if(PositionGetString(POSITION_SYMBOL) != trans.symbol) continue;
       if((ulong)PositionGetInteger(POSITION_IDENTIFIER) == positionID)
       {
          newTicket = t;
@@ -131,28 +144,28 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    }
 
    // Tính tổng volume SAU KHI lệnh mới đã vào (bao gồm lệnh này)
-   double totalVolume = GetTotalVolume();
+   double totalVolume = GetTotalVolume(trans.symbol);
 
    bool   needTP = false;
    string reason = "";
 
    // Rule 2: tổng vol > 0.4 → set TP cho lệnh mới này (bất kể volume)
-   if(totalVolume > TotalVolumeLimit + EPS)
+   if(totalVolume > totLim + EPS)
    {
       needTP = true;
-      reason = StringFormat("Rule 2: total vol %.2f > %.2f lot", totalVolume, TotalVolumeLimit);
+      reason = StringFormat("Rule 2: total vol %.2f > %.2f lot", totalVolume, totLim);
    }
    // Rule 1: volume lệnh này > 0.05 (0.05 vẫn OK) → set TP
-   else if(newVolume > ThresholdVolume + EPS)
+   else if(newVolume > thrVol + EPS)
    {
       needTP = true;
-      reason = StringFormat("Rule 1: order vol %.2f > %.2f lot", newVolume, ThresholdVolume);
+      reason = StringFormat("Rule 1: order vol %.2f > %.2f lot", newVolume, thrVol);
    }
 
    if(needTP)
    {
-      if(SetTakeProfit(newTicket, TpPips))
-         Print("[XAU RM] ✔ TP set #", newTicket, " vol=", newVolume, " | ", reason);
+      if(SetTakeProfit(newTicket, tpPips))
+         Print("[XAU RM] ✔ TP set ", trans.symbol, " #", newTicket, " vol=", newVolume, " | ", reason);
       else
          Print("[XAU RM] ✘ TP failed #", newTicket, " Err:", GetLastError());
    }
@@ -167,28 +180,28 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 }
 
 //+------------------------------------------------------------------+
-double GetTotalVolume()
+double GetTotalVolume(string sym)
 {
    double total = 0.0;
    for(int i = 0; i < PositionsTotal(); i++)
    {
       ulong t = PositionGetTicket(i);
       if(t == 0 || !PositionSelectByTicket(t)) continue;
-      if(PositionGetString(POSITION_SYMBOL) != EA_Symbol) continue;
+      if(PositionGetString(POSITION_SYMBOL) != sym) continue;
       if(MagicNumber != 0 && PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
       total += PositionGetDouble(POSITION_VOLUME);
    }
    return total;
 }
 
-int GetOpenPositions()
+int GetOpenPositions(string sym)
 {
    int cnt = 0;
    for(int i = 0; i < PositionsTotal(); i++)
    {
       ulong t = PositionGetTicket(i);
       if(t == 0 || !PositionSelectByTicket(t)) continue;
-      if(PositionGetString(POSITION_SYMBOL) != EA_Symbol) continue;
+      if(PositionGetString(POSITION_SYMBOL) != sym) continue;
       if(MagicNumber != 0 && PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
       cnt++;
    }
@@ -234,22 +247,26 @@ bool SetTakeProfit(ulong ticket, double pips)
 {
    if(!PositionSelectByTicket(ticket)) return false;
 
+   string sym     = PositionGetString(POSITION_SYMBOL);
+   int    digits  = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   double pipSize = SymbolInfoDouble(sym, SYMBOL_POINT) * 10.0;   // 1 pip = 10 point
+
    ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
    double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
    double currentSL = PositionGetDouble(POSITION_SL);
    double tp        = 0.0;
 
    if(posType == POSITION_TYPE_BUY)
-      tp = NormalizeDouble(openPrice + pips * g_pipSize, g_digits);
+      tp = NormalizeDouble(openPrice + pips * pipSize, digits);
    else if(posType == POSITION_TYPE_SELL)
-      tp = NormalizeDouble(openPrice - pips * g_pipSize, g_digits);
+      tp = NormalizeDouble(openPrice - pips * pipSize, digits);
    else
       return false;
 
    MqlTradeRequest req = {};
    MqlTradeResult  res = {};
    req.action   = TRADE_ACTION_SLTP;
-   req.symbol   = EA_Symbol;
+   req.symbol   = sym;
    req.position = ticket;
    req.sl       = currentSL;
    req.tp       = tp;
@@ -307,7 +324,7 @@ void RectCreate(string name, int x, int y, int w, int h, color bg, color border)
 
 void CreateDashboard()
 {
-   int x = PanelX, y = PanelY, W = 190, H = 64;
+   int x = PanelX, y = PanelY, W = 190, H = g_btcOn ? 106 : 64;
    int LX = x + 8, VX = x + W - 8;
    color LC = C'110,135,180';
 
@@ -327,21 +344,45 @@ void CreateDashboard()
    LabelCreate(PFX+"T_LIQ", LX, y+44, "Liq. price", C'150,170,210', 8);
    LabelCreate(PFX+"V_LIQ", VX, y+44, "—", LC, 8, "Segoe UI Bold", ANCHOR_RIGHT_UPPER);
 
+   // Dòng 4-5: BTC (chỉ khi bật)
+   if(g_btcOn)
+   {
+      LabelCreate(PFX+"T_BTC",     LX, y+66, "BTC RM", C'120,190,255', 8, "Segoe UI Bold");
+      LabelCreate(PFX+"V_BTC_VOL", VX, y+66, "—", C'50,215,115', 8, "Segoe UI Bold", ANCHOR_RIGHT_UPPER);
+      LabelCreate(PFX+"V_BTC_POS", LX, y+84, "—", LC, 8);
+      LabelCreate(PFX+"V_BTC_TP",  VX, y+84,
+                  StringFormat("TP %.0fp · >%.2f", BTC_TpPips, BTC_ThresholdVolume),
+                  C'255,210,60', 8, "Segoe UI", ANCHOR_RIGHT_UPPER);
+   }
+
    ChartRedraw(0);
+}
+
+// Cùng điều kiện với Rule 2: chỉ đỏ khi tổng > giới hạn
+color VolColor(double vol, double limit)
+{
+   return (vol > limit + EPS)  ? C'255,75,75' :
+          (vol >= limit*0.75)  ? C'255,185,40' : C'50,215,115';
 }
 
 void UpdateDashboard()
 {
-   double totalVol = GetTotalVolume();
-   int    openPos  = GetOpenPositions();
-
-   // Cùng điều kiện với logic Rule 2: chỉ đỏ khi tổng > giới hạn
-   color volColor = (totalVol > TotalVolumeLimit + EPS)  ? C'255,75,75' :
-                    (totalVol >= TotalVolumeLimit*0.75)  ? C'255,185,40' : C'50,215,115';
+   double totalVol = GetTotalVolume(EA_Symbol);
+   int    openPos  = GetOpenPositions(EA_Symbol);
 
    ObjectSetString (0, PFX+"V_TVOL", OBJPROP_TEXT,
                     StringFormat("%.2f / %.2f lot", totalVol, TotalVolumeLimit));
-   ObjectSetInteger(0, PFX+"V_TVOL", OBJPROP_COLOR, volColor);
+   ObjectSetInteger(0, PFX+"V_TVOL", OBJPROP_COLOR, VolColor(totalVol, TotalVolumeLimit));
+
+   if(g_btcOn)
+   {
+      double btcVol = GetTotalVolume(BTC_Symbol);
+      ObjectSetString (0, PFX+"V_BTC_VOL", OBJPROP_TEXT,
+                       StringFormat("%.2f / %.2f lot", btcVol, BTC_TotalVolumeLimit));
+      ObjectSetInteger(0, PFX+"V_BTC_VOL", OBJPROP_COLOR, VolColor(btcVol, BTC_TotalVolumeLimit));
+      ObjectSetString (0, PFX+"V_BTC_POS", OBJPROP_TEXT,
+                       IntegerToString(GetOpenPositions(BTC_Symbol))+" orders");
+   }
    ObjectSetString (0, PFX+"V_POS",  OBJPROP_TEXT,  IntegerToString(openPos)+" orders");
 
    double liq, pct;
